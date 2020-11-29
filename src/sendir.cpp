@@ -2,9 +2,21 @@
 
 SendIR::SendIR() {}
 
-void SendIR::setData(unsigned long data)
+bool SendIR::setData(unsigned long *data, byte dataCount)
 {
-    _irdata = data;
+    if (!_irdata)
+    {
+        free(_irdata);
+    }
+    _irdata = (unsigned long *)calloc(dataCount, sizeof(unsigned long));
+    if (!_irdata)
+    {
+        return false;
+    }
+    memcpy(_irdata, data, dataCount * sizeof(unsigned long));
+    _dataCount = dataCount;
+    _packetIndex = 0;
+    return true;
 }
 
 void SendIR::setProtocol(decode_type_t protocol)
@@ -17,48 +29,61 @@ void SendIR::sendIrData(decode_type_t protocol, unsigned long data)
     switch (protocol)
     {
     case SAMSUNG:
-        irsend.sendSAMSUNG(data, 32);
+        _irsend.sendSAMSUNG(data, 32);
         break;
     case RCMM:
-        irsend.sendRCMM(data, 32);
+        _irsend.sendRCMM(data, 32);
         break;
     default:
         return;
     }
 }
 
-void SendIR::sendLoop()
+// \return true when sequence sent completely and waiting to start next transmission sequence
+bool SendIR::sendLoop()
 {
-    switch (state)
+    switch (_state)
     {
     case RESET:
-        packetInterval.start(100);
-        keyRepeatDelay.start(2500);
-        sendIrData(_irProtocol, _irdata);
-        packetCtr = 1;
-        state = SEND_PACKET;
+        _packetInterval.start(100);
+        _keyRepeatDelay.start(2500);
+        sendIrData(_irProtocol, _irdata[_packetIndex]);
+        _packetCtr = 1;
+        _state = SEND_PACKET;
         break;
     case SEND_PACKET:
-        if (packetInterval.justFinished())
+        if (_packetInterval.justFinished())
         {
-            if (packetCtr++ < 4)
+            if (_packetCtr++ < 4)
             {
-                packetInterval.repeat();
-                sendIrData(_irProtocol, _irdata);
+                _packetInterval.repeat();
+                sendIrData(_irProtocol, _irdata[_packetIndex]);
             }
             else
             {
-                state = WAIT_FOR_KEY_REPEAT;
+                _state = NEXT_PACKET;
             }
         }
         break;
-    case WAIT_FOR_KEY_REPEAT:
-        if (keyRepeatDelay.justFinished())
+    case NEXT_PACKET:
+        if (++_packetIndex < _dataCount)
         {
-            state = RESET;
+            _state = RESET;
+        }
+        else
+        {
+            _state = WAIT_FOR_KEY_REPEAT;
         }
         break;
+    case WAIT_FOR_KEY_REPEAT:
+        _packetIndex = 0;
+        if (_keyRepeatDelay.justFinished())
+        {
+            _state = RESET;
+        }
+        return true;
     default:
         break;
     }
+    return false;
 }

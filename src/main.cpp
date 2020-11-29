@@ -1,5 +1,7 @@
 
 #include "sendIr.h"
+#include "keyCodes.h"
+
 typedef enum
 {
   PIN_LASER = 2,
@@ -29,75 +31,93 @@ typedef enum
 } BUTTON_CODE;
 
 BUTTON_CODE readSwitches();
-void sendIrData(decode_type_t protocol, unsigned long data);
-
-unsigned long buttonData = 0;
-decode_type_t irProtocol = UNKNOWN;
 SendIR irSender;
 
 void setup()
 {
-  Serial.begin(9600);
+  unsigned long buttonData[3];
+  decode_type_t irProtocol = UNKNOWN;
+  byte dataCount = 0;
+
+  // Serial.begin(9600);
+  // Serial.print("Build: ");Serial.println(__TIMESTAMP__);
   pinMode(PIN_NPN_BASE, OUTPUT);
   pinMode(PIN_STARTUP, OUTPUT);
   pinMode(LED_BUILTIN, OUTPUT);
   pinMode(PIN_LASER, OUTPUT);
-  digitalWrite(PIN_NPN_BASE, HIGH); //enable takeover contact
+  digitalWrite(PIN_NPN_BASE, HIGH); //enable button takeover contact
   digitalWrite(PIN_STARTUP, HIGH);  //enable switch reading
   digitalWrite(PIN_LASER, HIGH);
-  BUTTON_CODE switchData = readSwitches();
 
+  BUTTON_CODE switchData = readSwitches();
+  // Serial.print("Switch value: ");Serial.println(switchData, DEC);
   switch (switchData)
   {
     //IR codes for Samsung TV : Samsung protocol
   case BTN_STANDBY:
-    buttonData = 0xE0E040BF;
+    buttonData[0] = 0xE0E040BF;
+    dataCount = 1;
     irProtocol = SAMSUNG;
     break;
   case BTN_VOL_UP:
-    buttonData = 0xE0E0E01F;
+    buttonData[0] = 0xE0E0E01F;
+    dataCount = 1;
     irProtocol = SAMSUNG;
     break;
   case BTN_VOL_DOWN:
-    buttonData = 0xE0E0D02F;
+    buttonData[0] = 0xE0E0D02F;
+    dataCount = 1;
     irProtocol = SAMSUNG;
     break;
     //IR codes for set top box : RCMM protocol
   case BTN_SUBTITLE:
-    buttonData = 0x22C0263C;
+    buttonData[0] = 0x22C0263C;
+    dataCount = 1;
     irProtocol = RCMM;
     break;
   case BTN_1:
-    buttonData = 0x22C02601;
+    //Ketnet HD : 38
+    buttonData[0] = RCMM_3;
+    buttonData[1] = RCMM_8;
+    dataCount = 2;
     irProtocol = RCMM;
     break;
   case BTN_3:
-    buttonData = 0x22C02603;
+    //Cartoon Network : 131
+    buttonData[0] = RCMM_1;
+    buttonData[1] = RCMM_3;
+    buttonData[2] = RCMM_1;
+    dataCount = 3;
     irProtocol = RCMM;
     break;
   case BTN_7:
-    buttonData = 0x22C02607;
+    //Disney Junior : 136
+    buttonData[0] = RCMM_1;
+    buttonData[1] = RCMM_3;
+    buttonData[2] = RCMM_6;
+    dataCount = 3;
     irProtocol = RCMM;
     break;
   default:
     digitalWrite(PIN_NPN_BASE, LOW); //power off
     break;
   }
-  irSender.setData(buttonData);
+
+  irSender.setData(buttonData, dataCount);
   irSender.setProtocol(irProtocol);
 }
 
 void loop()
 {
-  if (readSwitches() == NO_BUTTON_PRESSED)
+  if (irSender.sendLoop())
   {
-    digitalWrite(PIN_NPN_BASE, LOW); //power off
+    //Sequence sent completely, waiting to send next sequence.
+    if (readSwitches() == NO_BUTTON_PRESSED)
+    {
+      digitalWrite(PIN_NPN_BASE, LOW); //power off
+    }
   }
-  if (millis() < 5000)
-  {
-    irSender.sendLoop();
-  }
-  else
+  if (millis() > 5000)
   {
     digitalWrite(PIN_LASER, LOW);
   }
